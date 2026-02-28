@@ -1,0 +1,511 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>故事志工電子書櫃</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
+  <style>
+    /* --- 深色主題全局設定 --- */
+    body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; padding: 0; background-color: #1a1a1a; color: #e0e0e0; overflow-x: hidden; }
+    
+    /* --- 登入畫面設定 --- */
+    #login-overlay { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0, 0, 0, 0.9); display: flex; justify-content: center; align-items: center; z-index: 3000; }
+    .login-box { background: #2d2d2d; padding: 40px; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.8); text-align: center; max-width: 350px; width: 90%; border: 1px solid #444; }
+    .login-box h2 { color: #e9c46a; margin-top: 0; }
+    .login-box p { color: #bbb; margin-bottom: 20px; }
+    .login-box input { width: 100%; padding: 12px; margin-bottom: 15px; border: 2px solid #555; border-radius: 6px; font-size: 1.1rem; box-sizing: border-box; text-align: center; background: #1a1a1a; color: #fff; }
+    .login-box input:focus { border-color: #e9c46a; outline: none; }
+    .login-box button { width: 100%; padding: 12px; background: #d4a373; color: #1a1a1a; border: none; border-radius: 6px; font-size: 1.1rem; font-weight: bold; cursor: pointer; transition: 0.2s; }
+    .login-box button:hover { background: #e9c46a; }
+    #login-error { color: #ff6b6b; font-size: 0.9rem; margin-top: 10px; display: none; font-weight: bold; }
+
+    /* --- 🔴 豪華木紋書架設計 --- */
+    #bookshelf-view { padding: 40px 20px; max-width: 1200px; margin: 0 auto; display: none; box-sizing: border-box; }
+    h1 { text-align: center; color: #e9c46a; margin-bottom: 30px; letter-spacing: 2px; text-shadow: 0 2px 4px rgba(0,0,0,0.5); }
+    
+    #bookshelf { 
+      display: grid; 
+      /* 自動分配欄位，每本書的空間 */
+      grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); 
+      row-gap: 50px; /* 上下層書架的距離 */
+      column-gap: 0; /* 左右不留縫隙，讓書架木板能連在一起 */
+      padding: 40px 0; /* 上下留白，左右貼齊外框 */
+      
+      /* 木紋背板與外框 */
+      background-color: #2c1e16; 
+      background-image: repeating-linear-gradient(to right, transparent, transparent 80px, rgba(0, 0, 0, 0.15) 80px, rgba(0, 0, 0, 0.15) 82px); /* 模擬木板拼接的直條紋 */
+      border: 15px solid #1c1109; /* 粗重的實木外框 */
+      border-radius: 6px;
+      box-shadow: 10px 15px 30px rgba(0,0,0,0.6), inset 0 0 40px rgba(0,0,0,0.9);
+    }
+    
+    /* 每一本書的格子 (包含書本與底下的那層木板) */
+    .book-wrapper {
+      position: relative;
+      padding: 0 15px 18px 15px; /* 預留底部空間給木板 */
+      display: flex;
+      justify-content: center;
+      align-items: flex-end; /* 讓書本對齊站在木板上 */
+    }
+
+    /* 接連不斷的木頭層板 */
+    .shelf {
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      height: 18px; /* 木板厚度 */
+      background: linear-gradient(to bottom, #7a4f30 0%, #4a2e1b 100%);
+      box-shadow: 0 10px 15px rgba(0,0,0,0.7); /* 層板在牆上的陰影 */
+      z-index: 1;
+    }
+    .shelf::before {
+      content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px;
+      background: rgba(255, 255, 255, 0.15); /* 木板邊緣的高光反射 */
+    }
+
+    /* 書本實體外觀 */
+    .book { 
+      width: 100%;
+      max-width: 160px; /* 控制單本書的最大寬度 */
+      aspect-ratio: 1 / 1.4; /* A4 繪本比例 */
+      background: #222; 
+      border-radius: 2px 6px 6px 2px; /* 模擬書脊與書頁的弧度 */
+      box-shadow: 5px 5px 15px rgba(0,0,0,0.6), inset 3px 0 10px rgba(255,255,255,0.15); 
+      cursor: pointer; 
+      position: relative;
+      z-index: 2; /* 確保書本疊在層板上方 */
+      transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1); 
+      transform-origin: bottom center; /* 讓書從底部放大 */
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    .book:hover { 
+      transform: translateY(-5px) scale(1.05); /* 滑鼠游標移過去時，書本微幅抬起並放大 */
+      box-shadow: 10px 15px 25px rgba(0,0,0,0.8), inset 3px 0 10px rgba(255,255,255,0.25); 
+    }
+    
+    /* 書本封面圖片 */
+    .book-cover {
+      width: 100%; height: 100%; object-fit: cover; 
+      border-radius: 2px 6px 6px 2px;
+      background-color: #1a1a1a;
+    }
+
+    /* 書名浮水印條 (改為漸層陰影，不遮擋太多封面) */
+    .book-title-overlay {
+      position: absolute; bottom: 0; left: 0; width: 100%;
+      background: linear-gradient(to top, rgba(0,0,0,0.95) 0%, rgba(0,0,0,0.6) 60%, transparent 100%); 
+      color: #fff;
+      padding: 30px 10px 12px 10px;
+      box-sizing: border-box;
+      font-size: 0.95rem; text-align: center; font-weight: bold;
+      text-shadow: 1px 1px 3px rgba(0,0,0,0.8);
+      pointer-events: none; /* 防止點擊時卡住 */
+    }
+
+    /* 書脊的陰影效果 */
+    .book::before {
+      content: ''; position: absolute; top: 0; left: 0; width: 6px; height: 100%;
+      background: linear-gradient(to right, rgba(255,255,255,0.25), rgba(0,0,0,0.3));
+      z-index: 5;
+    }
+
+    /* --- 閱讀器畫面設定 --- */
+    #reader-view { display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: #111; z-index: 1000; flex-direction: column; }
+    
+    #toolbar { background: rgba(40, 40, 40, 0.95); color: #e0e0e0; padding: 10px 15px; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 2px 10px rgba(0,0,0,0.8); flex-wrap: wrap; gap: 10px; z-index: 50; border-bottom: 1px solid #333; }
+    .nav-btn { background: #d4a373; color: #1a1a1a; border: none; padding: 8px 15px; cursor: pointer; border-radius: 6px; font-weight: bold; font-size: 1rem; transition: background 0.2s; display: flex; align-items: center; gap: 5px;}
+    .nav-btn:hover { background: #e9c46a; }
+    .secondary { background: #555; color: #fff; }
+    .secondary:hover { background: #777; }
+    
+    .tools-group { display: flex; gap: 10px; align-items: center; background: #222; padding: 5px 10px; border-radius: 8px; flex-wrap: wrap; border: 1px solid #444; }
+    
+    .tool-btn { background: #444; color: #ccc; border: 2px solid transparent; padding: 8px 15px; cursor: pointer; border-radius: 6px; font-weight: bold; font-size: 1rem; transition: all 0.2s; display: flex; align-items: center; gap: 5px;}
+    .tool-btn:hover { background: #555; color: #fff; }
+    .tool-btn.active { background: #ffcc00; color: #000; border: 2px solid #fff; box-shadow: 0 0 15px rgba(255, 204, 0, 0.6); transform: scale(1.05); }
+    
+    input[type="color"] { border: none; width: 30px; height: 30px; border-radius: 4px; cursor: pointer; background: transparent; padding: 0; }
+    
+    #mag-settings { display: none; align-items: center; gap: 5px; margin-left: 5px; background: #333; padding: 4px 10px; border-radius: 6px; border: 1px solid #555;}
+    #mag-settings span { font-size: 0.85rem; color: #ccc; }
+    input[type="range"] { width: 80px; cursor: pointer; }
+
+    #canvas-container { flex: 1; overflow: hidden; display: flex; justify-content: center; align-items: center; padding: 15px; box-sizing: border-box; position: relative; }
+    #canvas-wrapper { position: relative; display: inline-block; box-shadow: 0 0 30px rgba(0,0,0,0.9); }
+    
+    canvas { display: block; }
+    #pdf-render { background: white; }
+    #draw-layer { position: absolute; top: 0; left: 0; z-index: 10; touch-action: none; cursor: default; }
+    
+    #magnifier-layer { position: absolute; border: 3px solid #ffcc00; border-radius: 12px; box-shadow: 0 0 20px rgba(0,0,0,0.9); z-index: 20; display: none; pointer-events: none; background-color: white; }
+
+    #page-info { font-size: 1rem; letter-spacing: 1px; min-width: 80px; text-align: center; color: #ccc; }
+    
+    #loading { display: none; position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); color: #e9c46a; background: rgba(0,0,0,0.9); padding: 30px 40px; border-radius: 12px; z-index: 2000; border: 1px solid #555; text-align: center; box-shadow: 0 10px 30px rgba(0,0,0,0.8); }
+    .loading-title { font-size: 1.5rem; font-weight: bold; margin-bottom: 15px; }
+    .loading-subtitle { font-size: 1rem; color: #bbb; }
+  </style>
+</head>
+<body>
+
+  <div id="login-overlay">
+    <div class="login-box">
+      <h2>🔒 專屬電子書櫃</h2>
+      <p>僅供校內說故事教學使用</p>
+      <input type="password" id="password-input" placeholder="請輸入通關密碼" onkeypress="handleEnter(event)">
+      <button onclick="checkPassword()">進入書櫃</button>
+      <p id="login-error">密碼錯誤，請再試一次！</p>
+    </div>
+  </div>
+
+  <div id="loading">
+    <div class="loading-title">📚 資料載入中，請稍候...</div>
+    <div class="loading-subtitle">要讀取雲端上的 PDF 檔會需要一點時間，<br>請耐心等候。</div>
+  </div>
+
+  <div id="bookshelf-view">
+    <h1>📖 故事志工電子書櫃</h1>
+    <div id="bookshelf"></div>
+  </div>
+
+  <div id="reader-view">
+    <div id="toolbar">
+      <button class="nav-btn secondary" onclick="closeReader()">🚪 返回</button>
+      
+      <div class="tools-group">
+        <button class="tool-btn active" id="btn-none" onclick="setMode('none')">🖐️ 閱讀</button>
+        <button class="tool-btn" id="btn-draw" onclick="setMode('draw')">🖌️ 畫筆</button>
+        <input type="color" id="pen-color" value="#ff3333" title="選擇畫筆顏色">
+        <button class="tool-btn" id="btn-mag" onclick="setMode('magnify')">🔍 放大鏡</button>
+        
+        <div id="mag-settings">
+          <span>範圍:</span>
+          <input type="range" id="mag-size-slider" min="200" max="800" step="50" value="350" title="調整放大鏡大小">
+          <span style="margin-left: 5px;">倍率:</span>
+          <input type="range" id="zoom-level-slider" min="1.5" max="4" step="0.5" value="2" title="調整放大倍數">
+        </div>
+
+        <button class="tool-btn secondary" onclick="clearDraw()">🧹 清除筆跡</button>
+      </div>
+
+      <div style="display: flex; align-items: center;">
+        <button class="nav-btn" onclick="prevPage()">◀</button>
+        <span id="page-info"></span>
+        <button class="nav-btn" onclick="nextPage()">▶</button>
+      </div>
+      <button class="nav-btn secondary" onclick="toggleFullScreen()">⛶ 全螢幕</button>
+    </div>
+    
+    <div id="canvas-container">
+      <div id="canvas-wrapper">
+        <canvas id="pdf-render"></canvas>
+        <canvas id="draw-layer"></canvas>
+        <canvas id="magnifier-layer"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const SECRET_PASSWORD = "1234"; 
+
+    function checkPassword() {
+      const input = document.getElementById('password-input').value;
+      if (input === SECRET_PASSWORD) {
+        document.getElementById('login-overlay').style.display = 'none';
+        document.getElementById('bookshelf-view').style.display = 'block';
+        loadBooks(); 
+      } else {
+        document.getElementById('login-error').style.display = 'block';
+      }
+    }
+
+    function handleEnter(e) {
+      if (e.key === 'Enter') checkPassword(); 
+    }
+
+    const GAS_URL = 'https://script.google.com/macros/s/AKfycbzJ42PmpxPTEwCLu-wQ28bLL6clQYq_TDb5zF61jmkUOh2P0KSI5Co6oYQvmclcAIIRVA/exec';
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
+
+    let pdfDoc = null, pageNum = 1, pageIsRendering = false, pageNumIsPending = null;
+    
+    const pdfCanvas = document.getElementById('pdf-render');
+    const pdfCtx = pdfCanvas.getContext('2d', { willReadFrequently: true });
+    
+    const drawCanvas = document.getElementById('draw-layer');
+    const drawCtx = drawCanvas.getContext('2d', { willReadFrequently: true });
+    
+    const magCanvas = document.getElementById('magnifier-layer');
+    const magCtx = magCanvas.getContext('2d');
+    
+    let magBaseSize = 350; 
+    let magWidth = magBaseSize * 1.4; 
+    let magHeight = magBaseSize;      
+    let zoomLevel = 2; 
+
+    magCanvas.width = magWidth;
+    magCanvas.height = magHeight;
+
+    document.getElementById('mag-size-slider').addEventListener('input', function() {
+      magBaseSize = parseInt(this.value);
+      magWidth = magBaseSize * 1.4; 
+      magHeight = magBaseSize;
+      magCanvas.width = magWidth;
+      magCanvas.height = magHeight;
+    });
+
+    document.getElementById('zoom-level-slider').addEventListener('input', function() {
+      zoomLevel = parseFloat(this.value);
+    });
+
+    let currentMode = 'none'; 
+    let isDrawing = false;
+
+    async function loadBooks() {
+      document.getElementById('loading').style.display = 'block';
+      try {
+        const response = await fetch(GAS_URL);
+        const books = await response.json();
+        const bookshelf = document.getElementById('bookshelf');
+        bookshelf.innerHTML = '';
+        
+        if (books.length === 0) {
+          bookshelf.innerHTML = '<p style="grid-column: 1/-1; text-align: center; color: #aaa; padding: 20px;">雲端硬碟裡還沒有 PDF 檔案喔！</p>';
+        }
+        
+        books.forEach(book => {
+          // 🔴 核心修改：創建包含「層板」與「書本」的群組
+          const wrapper = document.createElement('div');
+          wrapper.className = 'book-wrapper';
+          
+          const bookDiv = document.createElement('div');
+          bookDiv.className = 'book';
+          bookDiv.onclick = () => openBook(book.id);
+          bookDiv.innerHTML = `
+            <img class="book-cover" src="https://drive.google.com/thumbnail?id=${book.id}&sz=w400" alt="書本封面" loading="lazy" onerror="this.src='https://via.placeholder.com/400x560/333333/aaaaaa?text=PDF'">
+            <div class="book-title-overlay">${book.name}</div>
+          `;
+          
+          const shelfDiv = document.createElement('div');
+          shelfDiv.className = 'shelf';
+
+          // 將書本與木板組裝起來放上書架
+          wrapper.appendChild(bookDiv);
+          wrapper.appendChild(shelfDiv);
+          bookshelf.appendChild(wrapper);
+        });
+      } catch (error) {
+        alert('無法載入書櫃，請檢查網路狀態。');
+      }
+      document.getElementById('loading').style.display = 'none';
+    }
+
+    async function openBook(id) {
+      document.getElementById('loading').style.display = 'block';
+      try {
+        const response = await fetch(`${GAS_URL}?action=getFile&id=${id}`);
+        const result = await response.json();
+        if (result.success) {
+          const pdfData = atob(result.data);
+          const pdfAsArray = new Uint8Array(pdfData.length);
+          for (let i = 0; i < pdfData.length; i++) pdfAsArray[i] = pdfData.charCodeAt(i);
+          
+          pdfDoc = await pdfjsLib.getDocument({data: pdfAsArray}).promise;
+          document.getElementById('bookshelf-view').style.display = 'none';
+          document.getElementById('reader-view').style.display = 'flex';
+          
+          document.body.style.overflow = 'hidden';
+
+          pageNum = 1;
+          renderPage(pageNum);
+        } else {
+          alert('載入 PDF 失敗：' + result.error);
+        }
+      } catch (error) {
+        alert('讀取檔案發生錯誤，檔案可能過大。');
+      }
+      document.getElementById('loading').style.display = 'none';
+    }
+
+    function renderPage(num) {
+      pageIsRendering = true;
+      pdfDoc.getPage(num).then(page => {
+        const unscaledViewport = page.getViewport({ scale: 1.0 });
+        
+        const container = document.getElementById('canvas-container');
+        const containerWidth = container.clientWidth - 30;
+        const containerHeight = container.clientHeight - 30;
+        
+        const scaleX = containerWidth / unscaledViewport.width;
+        const scaleY = containerHeight / unscaledViewport.height;
+        const bestScale = Math.min(scaleX, scaleY);
+        
+        const renderScale = bestScale * 2; 
+        const viewport = page.getViewport({ scale: renderScale });
+        
+        pdfCanvas.height = viewport.height;
+        pdfCanvas.width = viewport.width;
+        drawCanvas.height = viewport.height;
+        drawCanvas.width = viewport.width;
+
+        const cssWidth = viewport.width / 2;
+        const cssHeight = viewport.height / 2;
+        pdfCanvas.style.width = cssWidth + 'px';
+        pdfCanvas.style.height = cssHeight + 'px';
+        drawCanvas.style.width = cssWidth + 'px';
+        drawCanvas.style.height = cssHeight + 'px';
+
+        const renderCtx = { canvasContext: pdfCtx, viewport: viewport };
+        page.render(renderCtx).promise.then(() => {
+          pageIsRendering = false;
+          if (pageNumIsPending !== null) {
+            renderPage(pageNumIsPending);
+            pageNumIsPending = null;
+          }
+        });
+        document.getElementById('page-info').textContent = `${num} / ${pdfDoc.numPages}`;
+      });
+    }
+
+    function queueRenderPage(num) {
+      if (pageIsRendering) pageNumIsPending = num;
+      else renderPage(num);
+    }
+    function prevPage() { if (pageNum <= 1) return; pageNum--; queueRenderPage(pageNum); clearDraw(); }
+    function nextPage() { if (pageNum >= pdfDoc.numPages) return; pageNum++; queueRenderPage(pageNum); clearDraw(); }
+
+    function closeReader() {
+      document.getElementById('reader-view').style.display = 'none';
+      document.getElementById('bookshelf-view').style.display = 'block';
+      pdfDoc = null;
+      if (document.fullscreenElement) document.exitFullscreen();
+      setMode('none');
+      
+      document.body.style.overflow = '';
+    }
+
+    function toggleFullScreen() {
+      const reader = document.getElementById('reader-view');
+      if (!document.fullscreenElement) {
+        reader.requestFullscreen().catch(() => {});
+      } else {
+        document.exitFullscreen();
+      }
+    }
+
+    window.addEventListener('resize', () => {
+      if (document.getElementById('reader-view').style.display === 'flex' && pdfDoc !== null) {
+        queueRenderPage(pageNum); 
+      }
+    });
+
+    function setMode(mode) {
+      if (mode === currentMode && mode !== 'none') mode = 'none';
+      currentMode = mode;
+      
+      document.querySelectorAll('.tool-btn').forEach(btn => btn.classList.remove('active'));
+      document.getElementById('btn-' + (mode === 'magnify' ? 'mag' : mode)).classList.add('active');
+      document.getElementById('mag-settings').style.display = (mode === 'magnify') ? 'flex' : 'none';
+      
+      if (mode === 'none') {
+        drawCanvas.style.cursor = 'default';
+        magCanvas.style.display = 'none';
+      } else if (mode === 'draw') {
+        drawCanvas.style.cursor = 'crosshair';
+        magCanvas.style.display = 'none';
+      } else if (mode === 'magnify') {
+        drawCanvas.style.cursor = 'none';
+      }
+    }
+
+    function clearDraw() {
+      drawCtx.clearRect(0, 0, drawCanvas.width, drawCanvas.height);
+    }
+
+    function getEventPos(e) {
+      const rect = drawCanvas.getBoundingClientRect();
+      const scaleX = drawCanvas.width / rect.width;
+      const scaleY = drawCanvas.height / rect.height;
+      const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+      const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+      return {
+        x: (clientX - rect.left) * scaleX,
+        y: (clientY - rect.top) * scaleY,
+        rawX: clientX - rect.left,
+        rawY: clientY - rect.top
+      };
+    }
+
+    function startAction(e) {
+      if (currentMode === 'none') return;
+      e.preventDefault(); 
+      
+      const pos = getEventPos(e);
+      if (currentMode === 'draw') {
+        isDrawing = true;
+        drawCtx.beginPath();
+        drawCtx.moveTo(pos.x, pos.y);
+        drawCtx.lineCap = 'round';
+        drawCtx.lineJoin = 'round';
+        drawCtx.lineWidth = 6;
+        drawCtx.strokeStyle = document.getElementById('pen-color').value;
+      } else if (currentMode === 'magnify') {
+        updateMagnifier(pos);
+      }
+    }
+
+    function moveAction(e) {
+      if (currentMode === 'none') return;
+      e.preventDefault();
+      
+      const pos = getEventPos(e);
+      if (currentMode === 'draw' && isDrawing) {
+        drawCtx.lineTo(pos.x, pos.y);
+        drawCtx.stroke();
+      } else if (currentMode === 'magnify') {
+        updateMagnifier(pos);
+      }
+    }
+
+    function endAction() {
+      if (currentMode === 'draw') {
+        isDrawing = false;
+      } else if (currentMode === 'magnify') {
+        magCanvas.style.display = 'none';
+      }
+    }
+
+    function updateMagnifier(pos) {
+      magCanvas.style.display = 'block';
+      
+      magCanvas.style.left = (pos.rawX - magWidth / 2) + 'px';
+      magCanvas.style.top = (pos.rawY - magHeight / 2) + 'px';
+
+      magCtx.clearRect(0, 0, magWidth, magHeight);
+      magCtx.fillStyle = '#fff';
+      magCtx.fillRect(0, 0, magWidth, magHeight);
+
+      const sx = pos.x - (magWidth / 2 / zoomLevel);
+      const sy = pos.y - (magHeight / 2 / zoomLevel);
+      const sw = magWidth / zoomLevel;
+      const sh = magHeight / zoomLevel;
+
+      magCtx.drawImage(pdfCanvas, sx, sy, sw, sh, 0, 0, magWidth, magHeight);
+      magCtx.drawImage(drawCanvas, sx, sy, sw, sh, 0, 0, magWidth, magHeight);
+    }
+
+    drawCanvas.addEventListener('mousedown', startAction);
+    drawCanvas.addEventListener('mousemove', moveAction);
+    drawCanvas.addEventListener('mouseup', endAction);
+    drawCanvas.addEventListener('mouseout', endAction);
+
+    drawCanvas.addEventListener('touchstart', startAction, { passive: false });
+    drawCanvas.addEventListener('touchmove', moveAction, { passive: false });
+    drawCanvas.addEventListener('touchend', endAction);
+
+  </script>
+</body>
+</html>
